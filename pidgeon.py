@@ -4,22 +4,43 @@ from pathlib import Path
 import json
 import argparse
 
+sourceUrl = ""
+userDefinedSources = []
+
 def main():
     args = parseArgs()
-    if args.config:
-        pass
     dir = str(Path.home()) + "/wallpaper"
     path = dir + "/wallpaper.jpg"
-    checkAndMakeDir(dir)
-    checkAndMakeConfig(dir)
     url = getBingUrl()
     image = requests.get(url, stream=True)
+
+    if args.config:
+        pass
+
+    checkAndMakeDir(dir)
+    checkAndMakeConfig(dir)
+
+    loadConfigs(dir)
+
     if image.status_code is 200:
         with open(path, "wb") as f:
             try:
                 f.write(image.content)
             finally:
                 f.close()
+
+def loadConfigs(dir):
+    global sourceUrl
+    global userDefinedSources
+    configs = ""
+    with open(dir + "/config.json", "r") as f:
+        try:
+            configs = f.read()
+        finally:
+            f.close()
+    configs = json.loads(configs)
+    sourceUrl = configs["source"]
+    userDefinedSources = configs["userDefinedSources"]
 
 def checkAndMakeDir(path):
     if not os.path.isdir(path):
@@ -30,7 +51,7 @@ def checkAndMakeConfig(dir):
     if not os.path.exists(filePath):
         defaultConfig = {
         "source": "bing",
-        "userOptions": []
+        "userDefinedSources": []
         }
         jsonString = json.dumps(defaultConfig)
         with open(filePath, "w") as f:
