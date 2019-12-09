@@ -14,11 +14,12 @@ def main():
     url = getBingUrl()
     image = requests.get(url, stream=True)
 
+    if isFirstLaunch(dir):
+        install(dir)
+
+
     if args.config:
         pass
-
-    checkAndMakeDir(dir)
-    checkAndMakeConfig(dir)
 
     loadConfigs(dir)
 
@@ -28,6 +29,7 @@ def main():
                 f.write(image.content)
             finally:
                 f.close()
+
 
 def loadConfigs(dir):
     global sourceUrl
@@ -42,23 +44,31 @@ def loadConfigs(dir):
     sourceUrl = configs["source"]
     userDefinedSources = configs["userDefinedSources"]
 
-def checkAndMakeDir(path):
-    if not os.path.isdir(path):
-        os.mkdir(path)
+def isFirstLaunch(dir): #checks if its the first time script is launched
+    if not os.path.isdir(dir) or not os.path.isfile(dir+'/config.json'):
+        return True
+    else:
+        return False
 
-def checkAndMakeConfig(dir):
-    filePath = dir + "/config.json"
-    if not os.path.exists(filePath):
-        defaultConfig = {
-        "source": "bing",
-        "userDefinedSources": []
-        }
-        jsonString = json.dumps(defaultConfig)
-        with open(filePath, "w") as f:
-            try:
-                f.write(jsonString)
-            finally:
-                f.close()
+def install(dir):
+    configFilePath = dir + "/config.json"
+    defaultConfig = {
+    "source": "bing",
+    "userDefinedSources": []
+    }
+    jsonString = json.dumps(defaultConfig)
+
+    #make directory
+    os.mkdir(dir)
+    #write default config
+    with open(configFilePath, "w") as f:
+        try:
+            f.write(jsonString)
+        finally:
+            f.close()
+    #copy script to dir
+    os.system(f'cp ./pidgeon.py {dir}')
+
 
 def getBingUrl():
     res = requests.get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US");
