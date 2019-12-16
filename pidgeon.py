@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import json
 import argparse
+import subprocess
 import re
 from datetime import date, timedelta
 
@@ -90,6 +91,8 @@ def main():
                 f.write(image.content)
             finally:
                 f.close()
+
+    changeWallpaper(path);
 
 
 def loadConfigs(dir):
@@ -180,6 +183,36 @@ def chooseSource(dir):
     else:
         exit(0)
 
+def changeWallpaper(path):
+    desktopEnvironment = os.environ.get('XDG_CURRENT_DESKTOP')
+    commands = {
+        'GNOME': 'gsettings set org.gnome.desktop.background picture-uri "file://{}"',
+        'KDE':  """
+                qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript '
+                    var allDesktops = desktops();
+                    print (allDesktops);
+                    for (i=0;i<allDesktops.length;i++) {{
+                        d = allDesktops[i];
+                        d.wallpaperPlugin = "org.kde.image";
+                        d.currentConfigGroup = Array("Wallpaper",
+                                               "org.kde.image",
+                                               "General");
+                        d.writeConfig("Image", "file:///{}")
+                    }}
+                '
+            """,
+        'MATE': 'gsettings set org.mate.background picture-filename {}',
+        'I3': '"feh --bg-scale {}'
+    }
+
+    if desktopEnvironment in commands:
+        commandForDE = commands[desktopEnvironment].format(path)
+    else:
+        print('Your desktop environment is not supported yet.')
+        print(f"You can try setting your wallpaper to the image in {path} from your desktop environment's settings")
+        exit(1)
+
+    os.system(commandForDE)
 
 def getCorrespondingUrl():
     for source in sources:
