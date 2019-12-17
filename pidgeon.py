@@ -118,6 +118,8 @@ def isFirstLaunch(dir): #checks if its the first time script is launched
         return False
 
 def install(dir):
+    #TODO if something fails, run uninstall
+    # TODO ask for source on install
     configFilePath = dir + "/config.json"
     defaultConfig = {
     "source": "bing",
@@ -141,6 +143,9 @@ def install(dir):
         #copy script to dir
         print(f'[{chr(10004)}] Copying script to {dir}/pidgeon.py')
         os.system(f'cp ./pidgeon.py {dir}')
+
+    print(f'[{chr(10004)}] Installing cronjob on reboot...')
+    addPidgeonCronjob(dir)
     print('Installation done')
 
 def chooseSource(dir):
@@ -214,6 +219,22 @@ def changeWallpaper(path):
 
     os.system(commandForDE)
 
+def addPidgeonCronjob(dir):
+    currentCrontab  = ''
+    crontabOutput = subprocess.run(['crontab', '-l'], capture_output = True)
+    if(crontabOutput.returncode == 0):
+        currentCrontab = str(crontabOutput.stdout)[2:-1]
+
+    currentCrontab = removePidgeonCronjob(currentCrontab, dir)
+    newCrontab = currentCrontab + f'\n@reboot python {dir}/pidgeon.py\n'
+    newCrontab = newCrontab.encode()
+
+    cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
+    cronOut.stdin.write(newCrontab)
+
+def removePidgeonCronjob(currentCrontab, dir):
+    return currentCrontab.replace(f'@reboot python3 {dir}/pidgeon.py', '')
+
 def getCorrespondingUrl():
     for source in sources:
         if chosenSource == source['configName']:
@@ -233,6 +254,8 @@ def yesNoPrompt():
             return False
 
 def parseArgs():
+    # TODO add uninstall -u flag
+    # TODO add reinstall -r flag
 	parser = argparse.ArgumentParser(description='Fetch a brand new wallpaper everyday')
 	parser.add_argument('-c','--config', action='store_true', help='Configuration, add sources, how ofter to change.')
 	args = parser.parse_args()
