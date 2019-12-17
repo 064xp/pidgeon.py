@@ -79,6 +79,9 @@ def main():
 
     if args.config:
         chooseSource(dir)
+    elif args.uninstall:
+        uninstall(dir)
+        exit(0)
 
     loadConfigs(dir)
 
@@ -147,6 +150,10 @@ def install(dir):
     print(f'[{chr(10004)}] Installing cronjob on reboot...')
     addPidgeonCronjob(dir)
     print('Installation done')
+
+def uninstall(dir):
+    os.system(f'rm -r {dir}')
+    removePidgeonCronjob(dir)
 
 def chooseSource(dir):
     f = open(dir + '/config.json', 'r+')
@@ -222,18 +229,32 @@ def changeWallpaper(path):
 def addPidgeonCronjob(dir):
     currentCrontab  = ''
     crontabOutput = subprocess.run(['crontab', '-l'], capture_output = True)
-    if(crontabOutput.returncode == 0):
+    if crontabOutput.returncode == 0: #if a crontab already exists
+        currentCrontab = removePidgeonCronjob(dir, currentCrontab)
         currentCrontab = str(crontabOutput.stdout)[2:-1]
-
-    currentCrontab = removePidgeonCronjob(currentCrontab, dir)
+    
     newCrontab = currentCrontab + f'\n@reboot python {dir}/pidgeon.py\n'
     newCrontab = newCrontab.encode()
 
     cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
     cronOut.stdin.write(newCrontab)
 
-def removePidgeonCronjob(currentCrontab, dir):
-    return currentCrontab.replace(f'@reboot python3 {dir}/pidgeon.py', '')
+def removePidgeonCronjob(dir, currentCrontab = ''):
+    if currentCrontab:
+        return currentCrontab.replace(f'@reboot python3 {dir}/pidgeon.py', '')
+    else:
+        crontabOutput = subprocess.run(['crontab', '-l'], capture_output = True)
+        if(crontabOutput.returncode == 0):
+            currentCrontab = str(crontabOutput.stdout)[2:-1]
+        else:
+            return 1
+
+        currentCrontab = removePidgeonCronjob(currentCrontab, dir)
+        newCrontab = currentCrontab + f'\n@reboot python {dir}/pidgeon.py\n'
+        newCrontab = newCrontab.encode()
+
+        cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
+        cronOut.stdin.write(newCrontab)
 
 def getCorrespondingUrl():
     for source in sources:
@@ -258,6 +279,7 @@ def parseArgs():
     # TODO add reinstall -r flag
 	parser = argparse.ArgumentParser(description='Fetch a brand new wallpaper everyday')
 	parser.add_argument('-c','--config', action='store_true', help='Configuration, add sources, how ofter to change.')
+	parser.add_argument('-u','--uninstall', action='store_true', help='Uninstall pidgeon and delete all files')
 	args = parser.parse_args()
 	return args
 
