@@ -68,7 +68,6 @@ def main():
     dir = str(Path.home()) + "/wallpaper"
     path = dir + "/wallpaper.jpg"
 
-
     if isFirstLaunch(dir):
         print("First time running, do you want to install? Y/n")
         wantsToInstall = yesNoPrompt()
@@ -77,13 +76,14 @@ def main():
         else:
             exit(0)
 
+    loadConfigs(dir)
+
     if args.config:
         chooseSource(dir)
     elif args.uninstall:
         uninstall(dir)
         exit(0)
 
-    loadConfigs(dir)
 
     url = getCorrespondingUrl()
     image = requests.get(url, stream=True)
@@ -121,8 +121,6 @@ def isFirstLaunch(dir): #checks if its the first time script is launched
         return False
 
 def install(dir):
-    #TODO if something fails, run uninstall
-    # TODO ask for source on install
     configFilePath = dir + "/config.json"
     defaultConfig = {
     "source": "bing",
@@ -133,19 +131,38 @@ def install(dir):
     #make directory
     if not os.path.isdir(dir):
         print(f'[{chr(10004)}] Making directory {dir}')
-        os.mkdir(dir)
+        try:
+            os.mkdir(dir)
+        except:
+            print(f'Could not create directory at {dir}')
+            uninstal(dir)
+            exit(1)
 
     #write default config
     with open(configFilePath, "w") as f:
         try:
             print(f'[{chr(10004)}] Writing default configuration file to {configFilePath}')
             f.write(jsonString)
+        except:
+            print(f'Could not write configuration file to {configFilePath}')
+            uninstall(dir)
+            exit(1)
         finally:
             f.close()
+
+    #ask for source and write to config
+    chooseSource(dir)
+
+    #copy the pidgeon.py script to the ~/wallpaper directory
     if not os.path.isfile(dir + '/pidgeon.py'):
         #copy script to dir
         print(f'[{chr(10004)}] Copying script to {dir}/pidgeon.py')
-        os.system(f'cp ./pidgeon.py {dir}')
+        try:
+            os.system(f'cp ./pidgeon.py {dir}')
+        except:
+            print(f'Could not copy script pidgeon.py to {dir}')
+            uninstall(dir)
+            exit(1)
 
     #write anacron interface script
     print(f'[{chr(10004)}] Creating anacron interface script in {dir}/anacron-interface.py')
@@ -153,7 +170,13 @@ def install(dir):
 
     #Create cronjob
     print(f'[{chr(10004)}] Creating anacron entry...')
-    os.system(f'sudo python3 {dir}/anacron-interface.py {dir}')
+    try:
+        os.system(f'sudo python3 {dir}/anacron-interface.py {dir}')
+    except:
+        print('Could not install pidgeon.py cronjob to anacrontab')
+        uninstall(dir)
+        exit(1)
+
     print('Installation done')
 
 def uninstall(dir):
@@ -165,7 +188,6 @@ def chooseSource(dir):
     config = f.read()
     config = json.loads(config)
     isValidInput = False
-
 
     print(f'Current chosen source: {chosenSource}')
     print('Available sources:\n')
