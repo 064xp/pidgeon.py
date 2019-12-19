@@ -9,7 +9,11 @@ import re
 from datetime import date, timedelta
 
 def getBingUrl():
-    res = requests.get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US");
+    try:
+        res = requests.get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US");
+    except:
+            os.system('notify-send "Could not retrieve wallpaper" "pidgeon.py"')
+
     json = res.json()
     url = "https://www.bing.com" + json["images"][0]["url"]
     return url
@@ -31,7 +35,7 @@ def getNasaAPODUrl():
         try:
             res = requests.get(url)
         except:
-            print("Could not fetch image")
+            os.system('notify-send "Could not retrieve wallpaper" "pidgeon.py"')
             exit(1)
 
 
@@ -44,8 +48,21 @@ def getNasaAPODUrl():
         else:
             isValidImage = False
             timeDelta += 1
-
     return imgURL
+
+def getNatgeoUrl():
+    currentDate = date.today()
+    month = str(currentDate.month)
+    year = str(currentDate.year)
+    month = month if len(month) != 1 else '0' + month
+
+    try:
+        monthGallery = requests.get(f'https://www.nationalgeographic.com/photography/photo-of-the-day/_jcr_content/.gallery.{year}-{month}.json').json()
+    except:
+        os.system('notify-send "Could not retrieve wallpaper" "pidgeon.py"')
+        exit(1)
+    latestImageUrl = monthGallery['items'][0]['image']['uri']
+    return latestImageUrl
 
 chosenSource = ""
 sources = [
@@ -59,6 +76,12 @@ sources = [
         'name': 'Nasa Astronomy Picture of the Day',
         'urlFunc': getNasaAPODUrl,
         'configName': 'nasa_apod',
+        'url': ''
+    },
+    {
+        'name': 'National Geographic Photo of the Day',
+        'urlFunc': getNatgeoUrl,
+        'configName': 'natgeo',
         'url': ''
     }
 ]
@@ -80,10 +103,10 @@ def main():
 
     if args.config:
         chooseSource(dir)
+        loadConfigs(dir)
     elif args.uninstall:
         uninstall(dir)
         exit(0)
-
 
     url = getCorrespondingUrl()
     image = requests.get(url, stream=True)
@@ -218,7 +241,6 @@ def chooseSource(dir):
     fetchNewImage = yesNoPrompt()
     if fetchNewImage:
         print(f'Fetching from {sources[newSource]["name"]}...')
-        return
     else:
         exit(0)
 
