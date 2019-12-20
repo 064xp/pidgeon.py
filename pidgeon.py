@@ -225,12 +225,28 @@ def install():
     chooseSource()
 
 def uninstall():
+    # Remove pidgeon.py from anacrontab
+    print(f'[{chr(10004)}] Removing pidgeon.py from anacrontab')
     try:
         os.system(f'sudo python3 {dir}/anacron-interface.py -r')
     except:
-        print('failed to remove pidgeon.py from /etc/anacrontab')
-    os.system(f'sudo rm /bin/pidgeon.py')
-    os.system(f'sudo rm -r {dir}')
+        print('Failed to remove pidgeon.py from /etc/anacrontab')
+        exit(1)
+
+    print(f'[{chr(10004)}] Removing symlink to {dir}/pidgeon.py in /bin')
+    try:
+        os.system(f'sudo rm /bin/pidgeon.py')
+    except:
+        print(f'Failed to remove symlink to {dir}/pidgeon.py in /bin')
+        exit(1)
+    print(f'[{chr(10004)}] Removing {dir}/')
+    try:
+        os.system(f'sudo rm -r {dir}')
+    except:
+        print(f'Failed to remove {dir}/')
+        exit(1)
+
+    print('Uninstalled Succesfully')
 
 def chooseSource():
     f = open(dir + '/config.json', 'r+')
@@ -334,7 +350,7 @@ if args.remove:
 else:
     addPidgeonCronjob()
     """
-    with open(f'{dir}/anacron-interface.py', 'w') as f:
+    with open(f'{dir}/anacron-interface.py', 'w+') as f:
         f.write(script)
         f.close()
 
