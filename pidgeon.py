@@ -147,13 +147,18 @@ def install(dir):
         print(f'[{chr(10004)}] Copying script to {dir}/pidgeon.py')
         os.system(f'cp ./pidgeon.py {dir}')
 
-    print(f'[{chr(10004)}] Installing cronjob on reboot...')
-    addPidgeonCronjob(dir)
+    #write anacron interface script
+    print(f'[{chr(10004)}] Creating anacron interface script in {dir}/anacron-interface.py')
+    createAnacronInterfaceScript(dir)
+
+    #Create cronjob
+    print(f'[{chr(10004)}] Creating anacron entry...')
+    os.system(f'sudo python3 {dir}/anacron-interface.py {dir}')
     print('Installation done')
 
 def uninstall(dir):
+    os.system(f'sudo python3 {dir}/anacron-interface.py {dir} -r')
     os.system(f'rm -r {dir}')
-    removePidgeonCronjob(dir)
 
 def chooseSource(dir):
     f = open(dir + '/config.json', 'r+')
@@ -226,35 +231,45 @@ def changeWallpaper(path):
 
     os.system(commandForDE)
 
+def createAnacronInterfaceScript(dir):
+    script = """
+import argparse
+
+def parseArgs():
+    parser = argparse.ArgumentParser(description='Add or remove pidgeon.py cronjob from anacrontab')
+    parser.add_argument('-r','--remove', action='store_true', help='Remove pidgeon.py cronjob from anacrontab')
+    parser.add_argument('dir', help='Directory where all pidgeon.py files are located')
+    args = parser.parse_args()
+    return args
+
 def addPidgeonCronjob(dir):
-    currentCrontab  = ''
-    crontabOutput = subprocess.run(['crontab', '-l'], capture_output = True)
-    if crontabOutput.returncode == 0: #if a crontab already exists
-        currentCrontab = removePidgeonCronjob(dir, currentCrontab)
-        currentCrontab = str(crontabOutput.stdout)[2:-1]
-    
-    newCrontab = currentCrontab + f'\n@reboot python {dir}/pidgeon.py\n'
-    newCrontab = newCrontab.encode()
+    removePidgeonCronjob(dir)
+    with open('/etc/anacrontab', 'r+') as f:
+        currentCrontab = f.read()
+        newCrontab = f'{currentCrontab}@daily 0 pidgeon.py python3 {dir}/pidgeon.py\\n'
+        f.seek(0)
+        f.write(newCrontab)
+        f.truncate()
+        f.close()
 
-    cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
-    cronOut.stdin.write(newCrontab)
+def removePidgeonCronjob(dir):
+    with open('/etc/anacrontab', 'r+') as f:
+        currentCrontab = f.read()
+        newCrontab = currentCrontab.replace(f'@daily 0 pidgeon.py python3 {dir}/pidgeon.py\\n', '')
+        f.seek(0)
+        f.write(newCrontab)
+        f.truncate()
+        f.close()
 
-def removePidgeonCronjob(dir, currentCrontab = ''):
-    if currentCrontab:
-        return currentCrontab.replace(f'@reboot python3 {dir}/pidgeon.py', '')
-    else:
-        crontabOutput = subprocess.run(['crontab', '-l'], capture_output = True)
-        if(crontabOutput.returncode == 0):
-            currentCrontab = str(crontabOutput.stdout)[2:-1]
-        else:
-            return 1
-
-        currentCrontab = removePidgeonCronjob(currentCrontab, dir)
-        newCrontab = currentCrontab + f'\n@reboot python {dir}/pidgeon.py\n'
-        newCrontab = newCrontab.encode()
-
-        cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
-        cronOut.stdin.write(newCrontab)
+args = parseArgs()
+if args.remove:
+    removePidgeonCronjob(args.dir)
+else:
+    addPidgeonCronjob(args.dir)
+    """
+    with open(f'{dir}/anacron-interface.py', 'w') as f:
+        f.write(script)
+        f.close()
 
 def getCorrespondingUrl():
     for source in sources:
@@ -275,8 +290,6 @@ def yesNoPrompt():
             return False
 
 def parseArgs():
-    # TODO add uninstall -u flag
-    # TODO add reinstall -r flag
 	parser = argparse.ArgumentParser(description='Fetch a brand new wallpaper everyday')
 	parser.add_argument('-c','--config', action='store_true', help='Configuration, add sources, how ofter to change.')
 	parser.add_argument('-u','--uninstall', action='store_true', help='Uninstall pidgeon and delete all files')
