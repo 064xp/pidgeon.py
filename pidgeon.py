@@ -7,10 +7,11 @@ import argparse
 import subprocess
 import re
 from datetime import date, timedelta
+import getpass
 
 def getBingUrl():
     try:
-        res = requests.get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US");
+        res = requests.get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US")
     except:
             os.system('notify-send "Could not retrieve wallpaper" "pidgeon.py"')
 
@@ -64,7 +65,10 @@ def getNatgeoUrl():
     latestImageUrl = monthGallery['items'][0]['image']['uri']
     return latestImageUrl
 
-chosenSource = ""
+# Global Variables
+chosenSource = ''
+desktopEnvironment = ''
+dir = '/opt/pidgeon.py'
 sources = [
     {
         'name': 'Bing Picture of the Day',
@@ -88,24 +92,29 @@ sources = [
 
 def main():
     args = parseArgs()
-    dir = str(Path.home()) + "/wallpaper"
     path = dir + "/wallpaper.jpg"
 
-    if isFirstLaunch(dir):
+    if isFirstLaunch():
         print("First time running, do you want to install? Y/n")
         wantsToInstall = yesNoPrompt()
         if wantsToInstall:
-            install(dir)
+            if os.geteuid() == 0:
+                print('Run as normal user, without sudo')
+                exit(1)
+            install()
         else:
             exit(0)
 
-    loadConfigs(dir)
+    loadConfigs()
 
     if args.config:
-        chooseSource(dir)
-        loadConfigs(dir)
+        chooseSource()
+        loadConfigs()
     elif args.uninstall:
-        uninstall(dir)
+        if os.geteuid() != 0:
+            print('Run as root, sudo pidgeon.py -u')
+            exit(1)
+        uninstall()
         exit(0)
 
     url = getCorrespondingUrl()
@@ -118,12 +127,14 @@ def main():
             finally:
                 f.close()
 
-    changeWallpaper(path);
+    changeWallpaper(path)
 
-
-def loadConfigs(dir):
+def loadConfigs():
     global chosenSource
     global sources
+    global desktopEnvironment
+    global dir
+
     userDefinedSources = []
     configs = ""
     with open(dir + "/config.json", "r") as f:
@@ -133,32 +144,36 @@ def loadConfigs(dir):
             f.close()
 
     configs = json.loads(configs)
-    chosenSource = configs["source"]
+    chosenSource = configs['source']
+    desktopEnvironment = configs['desktopEnvironment']
     userDefinedSources = configs["userDefinedSources"]
     sources.extend(userDefinedSources)
 
-def isFirstLaunch(dir): #checks if its the first time script is launched
+def isFirstLaunch(): #checks if its the first time script is launched
     if not os.path.isdir(dir) or not os.path.isfile(dir+'/config.json') or not os.path.isfile(dir+'/pidgeon.py'):
         return True
     else:
         return False
 
-def install(dir):
+def install():
     configFilePath = dir + "/config.json"
     defaultConfig = {
     "source": "bing",
-    "userDefinedSources": []
+    "userDefinedSources": [],
+    "desktopEnvironment": os.environ.get('XDG_CURRENT_DESKTOP')
     }
     jsonString = json.dumps(defaultConfig)
 
     #make directory
     if not os.path.isdir(dir):
         print(f'[{chr(10004)}] Making directory {dir}')
+        currentUser = getpass.getuser()
         try:
-            os.mkdir(dir)
+            os.system(f'sudo mkdir {dir}')
+            os.system(f'sudo chown {currentUser} {dir}')
         except:
             print(f'Could not create directory at {dir}')
-            uninstal(dir)
+            uninstall()
             exit(1)
 
     #write default config
@@ -168,13 +183,10 @@ def install(dir):
             f.write(jsonString)
         except:
             print(f'Could not write configuration file to {configFilePath}')
-            uninstall(dir)
+            uninstall()
             exit(1)
         finally:
             f.close()
-
-    #ask for source and write to config
-    chooseSource(dir)
 
     #copy the pidgeon.py script to the ~/wallpaper directory
     if not os.path.isfile(dir + '/pidgeon.py'):
@@ -182,31 +194,45 @@ def install(dir):
         print(f'[{chr(10004)}] Copying script to {dir}/pidgeon.py')
         try:
             os.system(f'cp ./pidgeon.py {dir}')
+            os.system(f'sudo chmod +x {dir}/pidgeon.py')
+            os.system(f'sudo ln -s {dir}/pidgeon.py /bin')
         except:
             print(f'Could not copy script pidgeon.py to {dir}')
-            uninstall(dir)
+            uninstall()
             exit(1)
 
     #write anacron interface script
     print(f'[{chr(10004)}] Creating anacron interface script in {dir}/anacron-interface.py')
-    createAnacronInterfaceScript(dir)
+    try:
+        createAnacronInterfaceScript()
+    except:
+        print(f'Could not write anacron interface script to {dir}')
+        uninstall()
+        exit(1)
 
     #Create cronjob
     print(f'[{chr(10004)}] Creating anacron entry...')
     try:
-        os.system(f'sudo python3 {dir}/anacron-interface.py {dir}')
+        os.system(f'sudo python3 {dir}/anacron-interface.py')
     except:
         print('Could not install pidgeon.py cronjob to anacrontab')
-        uninstall(dir)
+        uninstall()
         exit(1)
 
-    print('Installation done')
+    print('Installation done\n\n')
 
-def uninstall(dir):
-    os.system(f'sudo python3 {dir}/anacron-interface.py {dir} -r')
-    os.system(f'rm -r {dir}')
+    #ask for source and write to config
+    chooseSource()
 
-def chooseSource(dir):
+def uninstall():
+    try:
+        os.system(f'sudo python3 {dir}/anacron-interface.py -r')
+    except:
+        print('failed to remove pidgeon.py from /etc/anacrontab')
+    os.system(f'sudo rm /bin/pidgeon.py')
+    os.system(f'sudo rm -r {dir}')
+
+def chooseSource():
     f = open(dir + '/config.json', 'r+')
     config = f.read()
     config = json.loads(config)
@@ -245,7 +271,6 @@ def chooseSource(dir):
         exit(0)
 
 def changeWallpaper(path):
-    desktopEnvironment = os.environ.get('XDG_CURRENT_DESKTOP')
     commands = {
         'GNOME': 'gsettings set org.gnome.desktop.background picture-uri "file://{}"',
         'KDE':  """
@@ -273,43 +298,41 @@ def changeWallpaper(path):
         print(f"You can try setting your wallpaper to the image in {path} from your desktop environment's settings")
         exit(1)
 
-    os.system(commandForDE)
+    try:
+        os.system(commandForDE)
+    except:
+        os.system('notify-send "Could not set wallpaper" "pidgeon.py"')
 
-def createAnacronInterfaceScript(dir):
+def createAnacronInterfaceScript():
     script = """
 import argparse
-
 def parseArgs():
     parser = argparse.ArgumentParser(description='Add or remove pidgeon.py cronjob from anacrontab')
     parser.add_argument('-r','--remove', action='store_true', help='Remove pidgeon.py cronjob from anacrontab')
-    parser.add_argument('dir', help='Directory where all pidgeon.py files are located')
     args = parser.parse_args()
     return args
-
-def addPidgeonCronjob(dir):
-    removePidgeonCronjob(dir)
+def addPidgeonCronjob():
+    removePidgeonCronjob()
     with open('/etc/anacrontab', 'r+') as f:
         currentCrontab = f.read()
-        newCrontab = f'{currentCrontab}@daily 0 pidgeon.py python3 {dir}/pidgeon.py\\n'
+        newCrontab = f'{currentCrontab}@daily 0 pidgeon.py pidgeon.py\\n'
         f.seek(0)
         f.write(newCrontab)
         f.truncate()
         f.close()
-
-def removePidgeonCronjob(dir):
+def removePidgeonCronjob():
     with open('/etc/anacrontab', 'r+') as f:
         currentCrontab = f.read()
-        newCrontab = currentCrontab.replace(f'@daily 0 pidgeon.py python3 {dir}/pidgeon.py\\n', '')
+        newCrontab = currentCrontab.replace(f'@daily 0 pidgeon.py pidgeon.py\\n', '')
         f.seek(0)
         f.write(newCrontab)
         f.truncate()
         f.close()
-
 args = parseArgs()
 if args.remove:
-    removePidgeonCronjob(args.dir)
+    removePidgeonCronjob()
 else:
-    addPidgeonCronjob(args.dir)
+    addPidgeonCronjob()
     """
     with open(f'{dir}/anacron-interface.py', 'w') as f:
         f.write(script)
