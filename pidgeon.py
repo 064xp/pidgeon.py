@@ -14,10 +14,10 @@ def getBingUrl():
         res = requests.get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US")
     except:
             os.system('notify-send "Could not retrieve wallpaper" "pidgeon.py"')
-
-    json = res.json()
-    url = "https://www.bing.com" + json["images"][0]["url"]
-    return url
+    finally:
+        json = res.json()
+        url = "https://www.bing.com" + json["images"][0]["url"]
+        return url
 
 def getNasaAPODUrl():
     isValidImage = False
@@ -172,9 +172,7 @@ def install():
             os.system(f'sudo mkdir {dir}')
             os.system(f'sudo chown {currentUser} {dir}')
         except:
-            print(f'Could not create directory at {dir}')
-            uninstall()
-            exit(1)
+            installationFailed(f'Could not create directory at {dir}')
 
     #write default config
     with open(configFilePath, "w") as f:
@@ -182,55 +180,45 @@ def install():
             print(f'[{chr(10004)}] Writing default configuration file to {configFilePath}')
             f.write(jsonString)
         except:
-            print(f'Could not write configuration file to {configFilePath}')
-            uninstall()
-            exit(1)
+            installationFailed(f'Could not write configuration file to {configFilePath}')
         finally:
             f.close()
 
-    #copy the pidgeon.py script to the ~/wallpaper directory
+    #copy the pidgeon.py script to /opt/pidgeon.py
     if not os.path.isfile(dir + '/pidgeon.py'):
-        #copy script to dir
         print(f'[{chr(10004)}] Copying script to {dir}/pidgeon.py')
         try:
             os.system(f'cp ./pidgeon.py {dir}')
             os.system(f'sudo chmod +x {dir}/pidgeon.py')
             os.system(f'sudo ln -s {dir}/pidgeon.py /bin')
         except:
-            print(f'Could not copy script pidgeon.py to {dir}')
-            uninstall()
-            exit(1)
-
-    #write anacron interface script
-    print(f'[{chr(10004)}] Creating anacron interface script in {dir}/anacron-interface.py')
-    try:
-        createAnacronInterfaceScript()
-    except:
-        print(f'Could not write anacron interface script to {dir}')
-        uninstall()
-        exit(1)
+            installationFailed(f'Could not copy script pidgeon.py to {dir}')
 
     #Create cronjob
-    print(f'[{chr(10004)}] Creating anacron entry...')
+    print(f'[{chr(10004)}] Creating crontab entry for pidgeon.py...')
     try:
-        os.system(f'sudo python3 {dir}/anacron-interface.py')
+        addPidgeonCronjob(dir)
     except:
-        print('Could not install pidgeon.py cronjob to anacrontab')
-        uninstall()
-        exit(1)
+        installationFailed('Could not install pidgeon.py cronjob to crontab')
 
     print('Installation done\n\n')
-
     #ask for source and write to config
     chooseSource()
 
+def installationFailed(message):
+    print(f'[{chr(10007)}] {message}')
+    print(f'[{chr(10007)}] Running Uninstall...')
+    print('----------------------------------------------------------\n')
+    uninstall()
+    exit(1)
+
 def uninstall():
-    # Remove pidgeon.py from anacrontab
-    print(f'[{chr(10004)}] Removing pidgeon.py from anacrontab')
+    # Remove pidgeon.py from crontab
+    print(f'[{chr(10004)}] Removing pidgeon.py from crontab')
     try:
-        os.system(f'sudo python3 {dir}/anacron-interface.py -r')
+        removePidgeonCronjob()
     except:
-        print('Failed to remove pidgeon.py from /etc/anacrontab')
+        print('Failed to remove pidgeon.py from crontab')
         exit(1)
 
     print(f'[{chr(10004)}] Removing symlink to {dir}/pidgeon.py in /bin')
@@ -266,7 +254,7 @@ def chooseSource():
         else:
             newSource = int(newSource) - 1
             if newSource < 0 or newSource > len(sources)-1:
-                print('out of bounds')
+                print('Option not valid, please try again')
                 isValidInput = False
             else:
                 isValidInput = True
@@ -319,40 +307,26 @@ def changeWallpaper(path):
     except:
         os.system('notify-send "Could not set wallpaper" "pidgeon.py"')
 
-def createAnacronInterfaceScript():
-    script = """
-import argparse
-def parseArgs():
-    parser = argparse.ArgumentParser(description='Add or remove pidgeon.py cronjob from anacrontab')
-    parser.add_argument('-r','--remove', action='store_true', help='Remove pidgeon.py cronjob from anacrontab')
-    args = parser.parse_args()
-    return args
-def addPidgeonCronjob():
-    removePidgeonCronjob()
-    with open('/etc/anacrontab', 'r+') as f:
-        currentCrontab = f.read()
-        newCrontab = f'{currentCrontab}@daily 0 pidgeon.py pidgeon.py\\n'
-        f.seek(0)
-        f.write(newCrontab)
-        f.truncate()
-        f.close()
+def addPidgeonCronjob(dir):
+    currentCrontab  = removePidgeonCronjob()
+    newCrontab = currentCrontab + f'\n@reboot bash -c pidgeon.py\n'
+    newCrontab = newCrontab.encode()
+    cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
+    cronOut.stdin.write(newCrontab)
+
+    #gets current crontab, removes pidgeon.py entry if it exists and return the new crontab,
+    #if no crontab exists, returns empty string
 def removePidgeonCronjob():
-    with open('/etc/anacrontab', 'r+') as f:
-        currentCrontab = f.read()
-        newCrontab = currentCrontab.replace(f'@daily 0 pidgeon.py pidgeon.py\\n', '')
-        f.seek(0)
-        f.write(newCrontab)
-        f.truncate()
-        f.close()
-args = parseArgs()
-if args.remove:
-    removePidgeonCronjob()
-else:
-    addPidgeonCronjob()
-    """
-    with open(f'{dir}/anacron-interface.py', 'w+') as f:
-        f.write(script)
-        f.close()
+    currentCrontab = subprocess.run(['crontab', '-l'], capture_output = True)
+    if(currentCrontab.returncode == 0): #if a crontab already exists
+        currentCrontab = str(currentCrontab.stdout)[2:-1]
+        newCrontab = currentCrontab.replace('@reboot bash -c pidgeon.py', '')
+    else:
+        return ''
+
+    cronOut = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE)
+    cronOut.stdin.write(newCrontab.encode())
+    return newCrontab
 
 def getCorrespondingUrl():
     for source in sources:
